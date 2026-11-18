@@ -1,7 +1,7 @@
 # DSH Worker Orchestration
 
-> A plugin + skill for the DeepSeek Harness (DSH) desktop app: **one coordinator session spawns several independent worker sessions** and splits analysis, implementation, research and cross-checking across them.
-> Built to stop the token blow-up that comes with subagent calls.
+> **The main session only splits the work; workers with their own conversations do it.**
+> A plugin + skill for the DeepSeek Harness (DSH) desktop app, built to stop the token blow-up of subagent calls: **a token-saving orchestrator**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![DSH plugin](https://img.shields.io/badge/DeepSeek%20Harness-desktop%20plugin-4D6BFE)
@@ -15,19 +15,33 @@
 ## At a glance
 
 ```text
-user ──▶ coordinator session (MAIN)          ← only splits, collects, merges
+user ──▶ main session (coordinator)          ← only splits, collects, merges
               │  worker_spawn / worker_dispatch   (SDK calls inside run_code)
               ▼
      ┌────────┼────────┬────────┐
-  worker A  worker B  worker C  verifier     ← each one is its own DSH session: own window, own cache
+  worker A  worker B  worker C  verifier     ← each has its own conversation: own window, own cache
      │        │        │        │
-     └── only a 1,200-char [WORKER REPORT] copy reaches the coordinator ──┘   full text: files / worker_result
+     └── only a 1,200-char [WORKER REPORT] copy reaches the main session ──┘   full text: files / worker_result
 ```
 
 | What is in this repo | Path | Role |
 |---|---|---|
 | **Plugin** `dsh-worker-orchestrator` | [`plugins/dsh-worker-orchestrator/`](plugins/dsh-worker-orchestrator) | Registers 10 `worker_*` tools, creates/drives worker sessions, delivers reports, **enforces caps and refusals in code** |
 | **Skill** `worker-orchestration` | [`worker-orchestration/`](worker-orchestration) | Short rules (101 lines) the coordinator uses to decide how many workers and how to split, plus the rotation handoff template |
+
+---
+
+## Strengths — a token-saving orchestrator
+
+Plenty of plugins split work across agents. This one focuses on **cutting the tokens that splitting costs**, and the effect is measured.
+
+| Strength | What it does | Measured (author's setup) |
+|---|---|---|
+| **Savings enforced in code** | Not just asked for in a prompt: the plugin enforces per-worker call-cap notices, 4 running / 8 slots, and refuses re-dispatching a running worker | 71% of workers exceeded 6 calls → cap notices **obeyed 4/4** |
+| **A light main session** | Only 1,200-char report copies come in; full text is fetched on demand. Past a 400k window it hands over with one handoff file | Main-session tokens vs. all workers: **1.88× → 0.59×** |
+| **Verify only when it pays** | Only claims that meet V1–V5 (irreversible decision, conflict, missing evidence, …) are verified; the verifier has an 8-call cap and is stopped on timeout | Verifiers **2.12M tokens, 0 verdicts** → next run: 0 verifications |
+| **Lean worker start** | Workers do not see the skill catalog or management tools, and every instruction starts with the same prefix so the cache keeps hitting | 12,414-char skill catalog removed from every worker step; worker cache hit 94.8% |
+| **Light install** | Zero dependencies, one plugin file + one skill folder, 5 fake-app test suites | — |
 
 ---
 
@@ -39,8 +53,8 @@ Long reports and intermediate output piling up in the parent window were the mai
 
 So this project takes a different route:
 
-- **Workers are independent ordinary sessions, not subagents.** Like opening a separate agent pane per tab in the Herdr terminal multiplexer, each worker is a fresh DSH session with its own window and cache. What a worker reads stays in the worker's window.
-- **The coordinator window only receives report copies.** The coordinator does not analyse; it splits, collects and merges. Each report arrives as a copy of at most 1,200 characters; the full text is fetched only when needed via `worker_result` or the output file.
+- **Workers have their own conversations, they are not subagents.** Like opening a separate agent pane per tab in the Herdr terminal multiplexer, each worker is a fresh DSH conversation with its own window and cache. What a worker reads stays in the worker's window.
+- **The main session only splits, and only report copies enter its window.** The main session (coordinator) does not analyse; it splits, collects and merges. Each report arrives as a copy of at most 1,200 characters; the full text is fetched only when needed via `worker_result` or the output file.
 - **Rotate when the window grows.** Past 400k tokens the plugin injects a rotation notice, and the coordinator hands over to a fresh coordinator with one handoff file plus a one-line prompt.
 
 ---
@@ -52,7 +66,7 @@ The skill says *what* to decide and *when*; tool descriptions and refusal messag
 
 | Principle | Implementation |
 |---|---|
-| **Separate windows** | Workers are independent ordinary sessions created through the DSH Agent service (not subagents, not an agent team). The coordinator window only gets 1,200-char report copies. |
+| **Separate windows** | Each worker is an ordinary session with its own conversation, created through the DSH Agent service (not a subagent). The main-session window only gets 1,200-char report copies. |
 | **Rules enforced in code** | Per-worker `run_code` call-cap notice (`max_calls`, default 6, again at 2×) · 4 running workers per coordinator · 8 global slots · 10 spawns per minute · model-diversity gate · dispatch to a running worker refused · dispatch/resume to the verifier refused |
 | **Lean worker start** | Worker sessions do not see `worker_*`, `gui_*` or `skill`. The skill catalog (12,414 chars in the author's setup) no longer rides along on every worker step, and workers cannot spawn workers. |
 | **Cache-friendly prefix** | Every worker prompt starts with the byte-identical STABLE paragraph; variable values (dates, ids) only after it, so the provider prefix cache keeps hitting. |
@@ -68,7 +82,7 @@ The skill says *what* to decide and *when*; tool descriptions and refusal messag
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant C as Coordinator session
+    participant C as Main session (coordinator)
     participant P as Plugin
     participant W as Worker sessions
     participant V as Verifier session
