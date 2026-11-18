@@ -1,0 +1,48 @@
+{
+  "name": "dsh-worker-orchestrator",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness plugin: a coordinator session runs independent worker sessions (not subagents) with call caps, slot limits, lazy verification and window rotation enforced in code.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "multi-agent",
+    "orchestration",
+    "context-engineering",
+    "token-cost",
+    "prefix-cache"
+  ],
+  "license": "MIT",
+  "author": "AION-Battlecruiser",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AION-Battlecruiser/dsh-skills.git",
+    "directory": "plugins/dsh-worker-orchestrator"
+  },
+  "homepage": "https://github.com/AION-Battlecruiser/dsh-skills#readme",
+  "bugs": {
+    "url": "https://github.com/AION-Battlecruiser/dsh-skills/issues"
+  },
+  "private": true,
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node test/caps.test.mjs && node test/rotation.test.mjs && node test/fix.test.mjs && node test/fix2.test.mjs && node test/env.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-worker-orchestrator
+      name: dsh-worker-orchestrator
