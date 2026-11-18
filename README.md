@@ -150,7 +150,7 @@ sequenceDiagram
 ### 1. 받기
 
 ```bash
-git clone https://github.com/AION-Battlecruiser/dsh-skills.git
+git clone https://github.com/AION-Battlecruiser/dsh-worker-orchestrator.git
 ```
 
 ### 2. 스킬 넣기
@@ -158,11 +158,11 @@ git clone https://github.com/AION-Battlecruiser/dsh-skills.git
 DSH는 `~/.agents/skills`, `~/.dsh/skills`, 프로젝트 `.agents/skills` 를 감시하므로 복사하면 재시작 없이 목록에 나타납니다.
 
 ```bash
-cp -r dsh-skills/worker-orchestration ~/.agents/skills/
+cp -r dsh-worker-orchestrator/worker-orchestration ~/.agents/skills/
 ```
 
 ```powershell
-Copy-Item -Recurse dsh-skills\worker-orchestration $HOME\.agents\skills\
+Copy-Item -Recurse dsh-worker-orchestrator\worker-orchestration $HOME\.agents\skills\
 ```
 
 ### 3. 플러그인 넣기
@@ -170,7 +170,7 @@ Copy-Item -Recurse dsh-skills\worker-orchestration $HOME\.agents\skills\
 플러그인 폴더를 프로필의 `plugins/` 아래로 복사합니다(`<DSH_HOME>` 은 보통 `~/.dsh`).
 
 ```bash
-cp -r dsh-skills/plugins/dsh-worker-orchestrator ~/.dsh/profiles/desktop/plugins/
+cp -r dsh-worker-orchestrator/plugins/dsh-worker-orchestrator ~/.dsh/profiles/desktop/plugins/
 ```
 
 프로필의 `package.json` 에 의존성과 번들을 한 줄씩 추가합니다.
@@ -373,7 +373,7 @@ npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
 ## 레포 구조
 
 ```text
-dsh-skills/
+dsh-worker-orchestrator/
 ├─ plugins/dsh-worker-orchestrator/
 │  ├─ index.mjs            # 플러그인 본체 (의존성 0)
 │  ├─ cordis.patch.yml     # 번들 자동 장착

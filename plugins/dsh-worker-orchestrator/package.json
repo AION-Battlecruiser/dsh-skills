@@ -16,12 +16,12 @@
   "author": "AION-Battlecruiser",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AION-Battlecruiser/dsh-skills.git",
+    "url": "git+https://github.com/AION-Battlecruiser/dsh-worker-orchestrator.git",
     "directory": "plugins/dsh-worker-orchestrator"
   },
-  "homepage": "https://github.com/AION-Battlecruiser/dsh-skills#readme",
+  "homepage": "https://github.com/AION-Battlecruiser/dsh-worker-orchestrator#readme",
   "bugs": {
-    "url": "https://github.com/AION-Battlecruiser/dsh-skills/issues"
+    "url": "https://github.com/AION-Battlecruiser/dsh-worker-orchestrator/issues"
   },
   "private": true,
   "type": "module",

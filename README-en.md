@@ -150,7 +150,7 @@ Found by auditing real dispatch runs end to end; numbers come from the author's 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/AION-Battlecruiser/dsh-skills.git
+git clone https://github.com/AION-Battlecruiser/dsh-worker-orchestrator.git
 ```
 
 ### 2. Skill
@@ -158,11 +158,11 @@ git clone https://github.com/AION-Battlecruiser/dsh-skills.git
 DSH watches `~/.agents/skills`, `~/.dsh/skills` and the project's `.agents/skills`; the skill appears without a restart.
 
 ```bash
-cp -r dsh-skills/worker-orchestration ~/.agents/skills/
+cp -r dsh-worker-orchestrator/worker-orchestration ~/.agents/skills/
 ```
 
 ```powershell
-Copy-Item -Recurse dsh-skills\worker-orchestration $HOME\.agents\skills\
+Copy-Item -Recurse dsh-worker-orchestrator\worker-orchestration $HOME\.agents\skills\
 ```
 
 ### 3. Plugin
@@ -170,7 +170,7 @@ Copy-Item -Recurse dsh-skills\worker-orchestration $HOME\.agents\skills\
 Copy the plugin folder under your profile's `plugins/` (`<DSH_HOME>` is usually `~/.dsh`).
 
 ```bash
-cp -r dsh-skills/plugins/dsh-worker-orchestrator ~/.dsh/profiles/desktop/plugins/
+cp -r dsh-worker-orchestrator/plugins/dsh-worker-orchestrator ~/.dsh/profiles/desktop/plugins/
 ```
 
 Add it to the profile `package.json` as a dependency and a bundle.
@@ -374,7 +374,7 @@ npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
 ## Layout
 
 ```text
-dsh-skills/
+dsh-worker-orchestrator/
 ├─ plugins/dsh-worker-orchestrator/
 │  ├─ index.mjs            # the plugin (zero dependencies)
 │  ├─ cordis.patch.yml     # bundle auto-wiring
