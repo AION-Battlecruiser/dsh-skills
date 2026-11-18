@@ -1,6 +1,6 @@
 {
   "name": "dsh-worker-orchestrator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DeepSeek Harness plugin: a coordinator session runs independent worker sessions (not subagents) with call caps, slot limits, lazy verification and window rotation enforced in code.",
   "keywords": [
     "deepseek-harness",
@@ -35,7 +35,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node test/caps.test.mjs && node test/rotation.test.mjs && node test/fix.test.mjs && node test/fix2.test.mjs && node test/env.test.mjs"
+    "test": "node test/caps.test.mjs && node test/rotation.test.mjs && node test/fix.test.mjs && node test/fix2.test.mjs && node test/env.test.mjs && node test/compat.test.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -41,7 +41,8 @@ English: [README-en.md](README-en.md)
 | **주 세션은 가볍게** | 보고는 1,200자 사본만 들어오고 전문은 필요할 때만 꺼내 봅니다. 창이 400k를 넘으면 핸드오프 1장으로 교대 | 주 세션 토큰 = 일꾼 합의 **1.88배 → 0.59배** |
 | **검증은 필요할 때만** | 되돌리기 어려운 결정·충돌·근거 공백 같은 기준(V1~V5)에 걸린 주장만 검증. 검증자는 8회 상한, 시간 초과 시 정지 | 검증자 **212만 토큰·판정 0** → 다음 실전 검증 0회 |
 | **일꾼 시작 토큰 다이어트** | 일꾼에게 스킬 목록·관리 도구를 보여 주지 않고, 모든 지시를 같은 접두부로 시작해 캐시를 계속 맞춤 | 일꾼마다 매 스텝 붙던 스킬 목록 12,414자 제거, 일꾼 캐시 적중 94.8% |
-| **가볍게 설치** | 의존성 0, 플러그인 파일 1개 + 스킬 폴더 1개, 가짜 앱 테스트 5개 | — |
+| **앱 업데이트에도 조용히 고장 나지 않음** | 켜질 때마다 기대는 앱 기능을 점검하고, 앱 버전이 바뀌면 `[호환 점검]` 을 알려 줍니다. 필수 기능이 사라지면 새 일만 막고 돌던 일꾼 회수는 열어 둡니다 | 가짜 앱 시험 17개, 일부러 망가뜨린 변이 전부 검출 |
+| **가볍게 설치** | 의존성 0, 플러그인 파일 1개 + 스킬 폴더 1개, 가짜 앱 테스트 6개 | — |
 
 ---
 
@@ -210,9 +211,11 @@ cd ~/.dsh/profiles/desktop && pnpm install
 `<DSH_ORCH_DIR>/plugin.log` 에 아래 줄이 찍히면 정상입니다.
 
 ```text
-… module loaded v4-r3 dir=C:/Users/you/.dsh/worker-orchestrator ctl=disabled
+… module loaded v4-r4 dir=C:/Users/you/.dsh/worker-orchestrator ctl=disabled
+… host version=0.2.2-rc.3 via=app-boot
 … registered=worker_spawn,worker_dispatch,worker_verify,worker_finish,worker_reports,worker_transfer,worker_status,worker_result,worker_cancel,worker_resume
 … ctl=off
+… compat required agents.create ok 워커 생성
 ```
 
 ---
@@ -312,6 +315,21 @@ DSH 세션에서 평소처럼 일을 시키되, 앞에 `워커오케스트레이
 
 ---
 
+## 업데이트 대비 (호환 점검)
+
+DSH 데스크톱 앱은 자주 바뀝니다. 이 플러그인은 앱이 바뀌어도 **소리 없이 고장 나지 않도록** 스스로 점검합니다.
+
+| 언제 | 무엇을 | 결과 |
+|---|---|---|
+| 켜질 때 | 도구 등록·일꾼 만들기·세션 이벤트·창 크기 재기 같은 앱 기능이 있는지 | `plugin.log` 에 `compat required … ok/FAIL`, `compat optional … ok/off` |
+| 첫 일꾼 | 지시 전달·완료 대기·취소·도구 격리 등 일꾼 쪽 기능 | 필수가 없으면 그 일꾼을 닫고 분명한 `[호환]` 오류 |
+| 첫 지시의 턴이 끝날 때 | 턴 종료 이벤트가 실제로 오는지(보고 유실 감지) | 안 오면 `[호환]` 알림, 다른 일꾼의 이벤트가 오면 자동 해제 |
+| 앱 버전이 바뀐 뒤 첫 도구 호출 | 옛 버전 → 새 버전과 점검 결과 | 결과에 `compat_notice: "[호환 점검] 0.2.2-rc.3 → 0.2.3: 필수 n/n 정상 …"` |
+
+- **필수 기능이 사라지면** 새 일꾼·새 지시(`worker_spawn`·`dispatch`·`verify`·`resume`·`transfer`)만 막고, `worker_status`·`worker_result`·`worker_finish`·`worker_cancel`·`worker_reports` 는 열어 두어 돌던 일을 회수할 수 있습니다. 오류 문구에 원인·로그 경로·해결 방법(플러그인 업데이트 또는 앱 이전 버전)이 들어 있습니다.
+- **없어도 되는 기능이 사라지면** 그 기능만 끄고 계속 돕니다. 예: 창 크기를 못 재면 교대 알림만 꺼지고, 도구 격리를 못 하면 결과에 `isolation: 'off'` 와 경고가 붙습니다. 꺼진 기능은 `worker_status` 의 `host.off` 에 보입니다.
+- 마지막으로 본 앱 버전은 `<DSH_ORCH_DIR>/host.json` 에 남습니다.
+
 ## 보안
 
 - **제어 통로(ctl)는 기본으로 꺼져 있습니다.** `DSH_ORCH_CTL=1` 이면 플러그인이 `<DSH_ORCH_DIR>/ctl/in/*.json` 의 `code` 를 **앱 안에서 그대로 실행**합니다. 그 폴더에 쓸 수 있는 프로세스는 누구든 앱 권한으로 코드를 돌릴 수 있다는 뜻입니다. 혼자 쓰는 PC에서 디버깅할 때만 켜십시오.
@@ -322,11 +340,11 @@ DSH 세션에서 평소처럼 일을 시키되, 앞에 `워커오케스트레이
 
 ## 테스트
 
-가짜 앱으로 돌리는 Node 테스트 5개입니다. 파일 함수를 가로채므로 실제 상태 폴더는 건드리지 않습니다.
+가짜 앱으로 돌리는 Node 테스트 6개입니다. 파일 함수를 가로채므로 실제 상태 폴더는 건드리지 않습니다.
 
 ```bash
 cd plugins/dsh-worker-orchestrator
-npm test        # = node test/caps.test.mjs && … && node test/env.test.mjs
+npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
 ```
 
 | 파일 | 다루는 것 |
@@ -336,12 +354,13 @@ npm test        # = node test/caps.test.mjs && … && node test/env.test.mjs
 | `test/fix.test.mjs` | 동시 spawn 경합, 전역 슬롯, 제어 통로 소유권 |
 | `test/fix2.test.mjs` | 회귀 52개(검증자 정책, 보고 배달, 재전달 방지 등) |
 | `test/env.test.mjs` | 환경 변수 없을 때 기본 폴더·제어 통로 꺼짐 |
+| `test/compat.test.mjs` | 호환 점검 17개(필수 누락 거절, 회수 도구 열림, 늦은 주입, 이벤트 감시와 자동 해제, 버전 변경 알림) |
 
 ---
 
 ## 알려진 한계
 
-- DSH 플러그인 내부 API(Agent service, 세션 이벤트, `tools.restrict` 등)에 기대므로 앱 업데이트에 깨질 수 있습니다.
+- DSH 플러그인 내부 API(Agent service, 세션 이벤트, `tools.restrict` 등)에 기댑니다. 앱 업데이트로 깨질 수는 있지만, 위 호환 점검이 조용히 넘어가지 않고 알려 줍니다. 실제 앱 기준 확인은 작성자 환경(0.2.2-rc.3)뿐입니다.
 - 테스트는 가짜 앱 기준입니다. 실제 앱에서는 `plugin.log` 로 확인합니다.
 - 호출 상한은 **쪽지**입니다. 일꾼을 강제로 끊지 않습니다. 검증자만 시간 초과 뒤 정지합니다.
 - 검증 판정은 검증자의 마지막 텍스트 메시지에서만 읽습니다.
@@ -359,7 +378,7 @@ dsh-skills/
 │  ├─ index.mjs            # 플러그인 본체 (의존성 0)
 │  ├─ cordis.patch.yml     # 번들 자동 장착
 │  ├─ package.json
-│  └─ test/                # 가짜 앱 테스트 5개
+│  └─ test/                # 가짜 앱 테스트 6개
 ├─ worker-orchestration/
 │  ├─ SKILL.md             # 코디네이터 규칙 v10
 │  └─ handoff_template.md  # 교대 핸드오프 양식

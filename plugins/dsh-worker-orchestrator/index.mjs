@@ -40,7 +40,29 @@ const probe = (line) => {
   try { appendFileSync(PROBE_LOG, new Date().toISOString() + ' ' + line + '\n') } catch {}
 }
 
-probe('module loaded v4-r3 dir=' + ORCH_DIR + ' ctl=' + (CTL_ENABLED ? 'enabled' : 'disabled'))
+probe('module loaded v4-r4 dir=' + ORCH_DIR + ' ctl=' + (CTL_ENABLED ? 'enabled' : 'disabled'))
+
+// #region compat
+const detectHostVersion = () => {
+  try {
+    const version = createRequire(import.meta.url)('@deepseek-ai/dsh-app-boot').getDshRuntimeVersion()
+    if (typeof version === 'string' && version) return { version, via: 'app-boot' }
+  } catch {}
+  try {
+    const version = createRequire(import.meta.url)('@deepseek-ai/dsh/package.json').version
+    if (typeof version === 'string' && version) return { version, via: 'package' }
+  } catch {}
+  try {
+    for (const dir of process.argv) {
+      try {
+        const version = JSON.parse(readFileSync(join(dir, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8')).version
+        if (typeof version === 'string' && version) return { version, via: 'runtimeDir' }
+      } catch {}
+    }
+  } catch {}
+  return { version: 'unknown', via: 'unknown' }
+}
+// #endregion
 
 export const name = 'worker-orchestrator'
 export const inject = ['tools']
@@ -138,6 +160,72 @@ export function apply(ctx) {
   probe('agents-direct=' + safeType(() => ctx.agents?.create))
   probe('agents-get=' + safeType(() => ctx.get?.('agents')?.create))
   probe('root-tools=' + safeType(() => ctx.root?.tools?.register))
+
+  // #region compat
+  const hostCompat = { ...detectHostVersion(), required: {}, optional: {} }
+  const hostFile = join(ORCH_DIR, 'host.json')
+  let previousHost
+  try { previousHost = JSON.parse(readFileSync(hostFile, 'utf8')) } catch {}
+  let updateNotice = typeof previousHost?.version === 'string' && previousHost.version !== 'unknown' && hostCompat.version !== 'unknown' && previousHost.version !== hostCompat.version ? previousHost.version : undefined
+  const isolationNotified = new Set()
+  let instanceChecked = false
+  let compatReady = false
+  let canary
+  probe('host version=' + hostCompat.version + ' via=' + hostCompat.via)
+  const saveCompat = () => {
+    if (updateNotice !== undefined) return
+    if (hostCompat.version === 'unknown' && previousHost?.version && previousHost.version !== 'unknown') return
+    if (Object.values(hostCompat.required).some((item) => item.ok === null)) return
+    const failed = Object.entries(hostCompat.required).filter(([, item]) => item.ok === false).map(([name]) => name)
+    try { appendFileSync(hostFile, JSON.stringify({ version: hostCompat.version, via: hostCompat.via, checkedAt: new Date().toISOString(), failed }), { flag: 'w' }) } catch {}
+  }
+  const checkCompat = (kind, name, ok, why, feature) => {
+    hostCompat[kind][name] = kind === 'required' ? { ok, why } : { ok, why, feature }
+    probe('compat ' + kind + ' ' + name + ' ' + (ok ? 'ok' : kind === 'required' ? 'FAIL' : 'off') + ' ' + (kind === 'required' ? why : feature))
+    saveCompat()
+  }
+  const pendingCompat = (kind, name, feature) => {
+    hostCompat[kind][name] = { ok: null, why: 'pending', ...(feature ? { feature } : {}) }
+    probe('compat ' + kind + ' ' + name + ' pending')
+  }
+  const compatError = (name) => new Error('[호환] DSH ' + hostCompat.version + ' 에서 ' + name + ' 이(가) 없거나 바뀜 — dsh-worker-orchestrator 업데이트가 필요합니다. 자세한 내용: ' + PROBE_LOG + ' 막힌 것: 새 일꾼·새 지시. 돌던 일꾼은 worker_result·worker_finish·worker_cancel 로 회수할 수 있음. 해결: 플러그인 업데이트 또는 앱 이전 버전.')
+  const failedCompat = () => Object.entries(hostCompat.required).find(([, item]) => item.ok === false)?.[0]
+  const hostSummary = () => ({ version: hostCompat.version, ok: failedCompat() === undefined, failed: Object.entries(hostCompat.required).filter(([, item]) => item.ok === false).map(([name]) => name), off: [...new Set(Object.values(hostCompat.optional).filter((item) => item.ok === false).map((item) => item.feature))] })
+  const updateText = () => {
+    const required = Object.values(hostCompat.required), optional = Object.values(hostCompat.optional)
+    return '[호환 점검] DSH ' + updateNotice + ' → ' + hostCompat.version + ': 필수 ' + required.filter((x) => x.ok).length + '/' + required.length + ' 정상, 선택 ' + optional.filter((x) => x.ok).length + '/' + optional.length + ' (꺼진 기능: ' + (hostSummary().off.join(', ') || '없음') + ')'
+  }
+  const instanceCompat = (handle) => {
+    const agent = handle?.agent
+    checkCompat('required', 'agent.followup', typeof agent?.followup === 'function', '워커 지시')
+    checkCompat('required', 'agent.whenIdle', typeof agent?.whenIdle === 'function', '워커 완료 대기')
+    checkCompat('optional', 'agent.steer', typeof agent?.steer === 'function', 'followup 대체', '즉시 전달(후속 턴으로 대체)')
+    checkCompat('optional', 'inbox.hasPending', typeof agent?.inbox?.hasPending === 'boolean', '대기열 확인', '연속 턴 감지')
+    checkCompat('optional', 'inbox.remove', typeof agent?.inbox?.remove === 'function', '대기열 제거', '상한 알림 제거')
+    checkCompat('optional', 'agent.cancel', typeof agent?.cancel === 'function', '취소', '워커 취소')
+    checkCompat('optional', 'ctx.tools.restrict', typeof agent?.ctx?.tools?.restrict === 'function', '도구 격리', '일꾼 도구 격리')
+  }
+  const checkInstance = async (handle) => {
+    if (instanceChecked) return
+    try {
+      instanceCompat(handle)
+      const failed = failedCompat()
+      if (failed !== undefined) throw compatError(failed)
+      instanceChecked = true
+    } catch (error) {
+      try { await handle?.dispose?.() } catch {}
+      if (String(error?.message ?? error).startsWith('[호환]')) throw error
+      checkCompat('required', 'agent.instance', false, '인스턴스 점검 실패: ' + describeError(error))
+      throw compatError('agent.instance')
+    }
+  }
+  const isolationResult = (worker, owner) => {
+    if (typeof worker?.handle?.agent?.ctx?.tools?.restrict === 'function') return {}
+    const warning = !isolationNotified.has(owner) ? '[호환] 일꾼 도구 격리가 꺼졌습니다(restrict 없음)' : undefined
+    if (warning) isolationNotified.add(owner)
+    return { isolation: 'off', isolation_reason: 'restrict 없음', ...(warning ? { warning } : {}) }
+  }
+  // #endregion
 
   // ---- ownership ---------------------------------------------------------
   // Every worker belongs to exactly one coordinator session. Reports go only to
@@ -298,6 +386,11 @@ export function apply(ctx) {
 
   const checkRotation = async (session, forcedPressure, test = false) => {
     try {
+      if (hostCompat.optional['tokenMeter.contextPressure']?.ok === null) {
+        let meter
+        try { meter = ctx.get?.('tokenMeter') } catch {}
+        checkCompat('optional', 'tokenMeter.contextPressure', typeof meter?.contextPressure === 'function', '토큰 압력', '교대 알림')
+      }
       const id = session?.header?.id
       if (!ROTATION_NOTIFY_ENABLED || typeof id !== 'string' || !id) return { notify: false }
       const isWorker = workers.has(id) || archived.has(id) || Object.hasOwn(registry, id)
@@ -460,6 +553,7 @@ export function apply(ctx) {
 
   /** Finish one worker: report, close its window, free the slot (session persists). */
   const finishWorker = async (workerId) => {
+    if (canary?.id === workerId && !canary.seen && hostCompat.required['session-event turn/end']?.ok !== false) canary = undefined
     const worker = workers.get(workerId)
     if (worker === undefined) {
       const record = registry[workerId]
@@ -583,6 +677,7 @@ export function apply(ctx) {
     ctx.inject(['agents'], (agentCtx) => {
       agentsCtx = agentCtx
       probe('agents-injected=' + safeType(() => agentCtx.agents?.create))
+      if (compatReady) serviceCompat()
     })
     probe('inject=ok')
   } catch (error) {
@@ -606,6 +701,30 @@ export function apply(ctx) {
     }
     throw new Error('worker-orchestrator: Agent service not available')
   }
+
+  const serviceCompat = (force = false) => {
+    let service
+    try { service = agentService() } catch {
+      try { service = agentsCtx?.agents ?? ctx.agents ?? ctx.get?.('agents') } catch {}
+    }
+    if (service === undefined && !force && typeof ctx.inject === 'function' && agentsCtx === undefined) {
+      pendingCompat('required', 'agents.create')
+      pendingCompat('required', 'agents.get')
+    } else {
+      checkCompat('required', 'agents.create', typeof service?.create === 'function', '워커 생성')
+      checkCompat('required', 'agents.get', typeof service?.get === 'function', '워커 조회')
+    }
+    checkCompat('required', 'ctx.tools.register', typeof ctx.tools?.register === 'function', '도구 등록')
+    if (service === undefined && !force && typeof ctx.inject === 'function' && agentsCtx === undefined) pendingCompat('optional', 'agents.resume', '재개')
+    else checkCompat('optional', 'agents.resume', typeof service?.resume === 'function', '세션 재개', '재개')
+    checkCompat('required', 'ctx.on', typeof ctx.on === 'function', '세션 이벤트')
+    let meter
+    try { meter = ctx.get?.('tokenMeter') } catch {}
+    if (typeof meter?.contextPressure === 'function') checkCompat('optional', 'tokenMeter.contextPressure', true, '토큰 압력', '교대 알림')
+    else if (hostCompat.optional['tokenMeter.contextPressure'] === undefined) pendingCompat('optional', 'tokenMeter.contextPressure', '교대 알림')
+  }
+  compatReady = true
+  serviceCompat()
 
   const resolve = (workerId) => {
     const worker = workers.get(workerId)
@@ -700,6 +819,31 @@ export function apply(ctx) {
   const rejected = []
   const register = (definition) => {
     try {
+      const execute = definition.execute
+      const render = definition.output?.render
+      definition.execute = async (args, exec) => {
+        if (hostCompat.required['agents.create']?.ok === null || hostCompat.required['agents.get']?.ok === null) serviceCompat(true)
+        const failed = failedCompat()
+        if (failed !== undefined && ['worker_spawn', 'worker_dispatch', 'worker_verify', 'worker_resume', 'worker_transfer'].includes(definition.name)) throw compatError(failed)
+        const id = exec?.agent?.session?.header?.id
+        if (typeof id !== 'string' || !id) throw new Error('[호환] ' + definition.name + ' 호출자 세션 id 를 못 받음')
+        let value = await execute(args, exec)
+        if (definition.name === 'worker_verify' && value && typeof value === 'object') {
+          const verifier = [...workers.values()].find((worker) => worker.role === 'verifier' && worker.owner === id && !worker.finished)
+          if (verifier) value = { ...value, ...isolationResult(verifier, id) }
+        }
+        if (updateNotice !== undefined && value && typeof value === 'object') {
+          value = { ...value, compat_notice: updateText() }
+          updateNotice = undefined
+          saveCompat()
+        }
+        return value
+      }
+      if (typeof render === 'function') definition.output.render = (args, value) => {
+        const blocks = render(args, value)
+        const notice = value?.compat_notice
+        return notice ? [{ type: 'text', text: notice + '\n' }, ...blocks] : blocks
+      }
       ctx.tools.register(definition)
       return true
     } catch (error) {
@@ -779,6 +923,7 @@ export function apply(ctx) {
       agentOptions,
       ...(composition === undefined ? {} : { setup: composition.setup }),
     })
+    await checkInstance(handle)
     // Hide MAIN-only tools before the worker enters the pool; a worker that cannot
     // be restricted is disposed instead of joining with coordinator powers.
     try { restrictWorker(handle, sessionId) } catch (error) {
@@ -1067,7 +1212,7 @@ export function apply(ctx) {
     }
     // No verifier here: worker_verify creates one when a claim meets the skill's
     // verification criteria (a spawn-time verifier held a slot and was paid for always).
-    return { ...created, verified: readiness.verified === true, readiness }
+    return { ...created, verified: readiness.verified === true, readiness, ...isolationResult(worker, spawnOwner) }
   }
 
   /** Hand workers (and their registry records) to another coordinator session. */
@@ -1254,6 +1399,8 @@ export function apply(ctx) {
     worker.error = undefined
     worker.status = 'running'
     worker.updatedAt = Date.now()
+    const firstCanary = canary === undefined
+    if (firstCanary) canary = { id: worker.id, seen: false }
     try {
       await worker.handle.agent.followup({
         id: randomUUID(),
@@ -1262,13 +1409,27 @@ export function apply(ctx) {
         source: { kind: 'user' },
       })
     } catch (error) {
+      if (firstCanary) canary = undefined
       worker.status = 'error'
       worker.error = String(error?.message ?? error).slice(0, 200)
       worker.updatedAt = Date.now()
       invalidateProbeCache(worker, worker.handle, 'dispatch failed')
       throw error
     }
-    track(worker, worker.handle.agent.whenIdle())
+    const idle = worker.handle.agent.whenIdle()
+    if (firstCanary) {
+      const current = canary
+      Promise.resolve(idle).then(() => {
+        if (current.seen || canary !== current || worker.finished) return
+        const timer = setTimeout(() => {
+          if (current.seen || canary !== current || worker.finished) return
+          checkCompat('required', 'session-event turn/end', false, '첫 턴 종료 이벤트를 받지 못함')
+          deliverToOwner(worker.owner, '[호환] 첫 턴 종료 이벤트를 받지 못했습니다. 새 일꾼·새 지시가 막힘. ' + PROBE_LOG)
+        }, 5000)
+        if (typeof timer?.unref === 'function') timer.unref()
+      }).catch(() => {})
+    }
+    track(worker, idle)
     let timedOut = false
     if (args.wait === true) {
       // Bounded wait: never freeze the caller's turn indefinitely on a stuck worker.
@@ -1300,7 +1461,7 @@ export function apply(ctx) {
         chars: archived.get(id)?.chars ?? 0,
         state: archived.has(id) ? 'finished' : 'persisted',
       }))
-    return { workers: [...live, ...persisted], handoff_dir: HANDOFF_DIR }
+    return { workers: [...live, ...persisted], handoff_dir: HANDOFF_DIR, host: hostSummary() }
   }
 
   const resultOf = async (args) => {
@@ -1325,6 +1486,7 @@ export function apply(ctx) {
    */
   const cancel = async (args) => {
     const worker = resolve(args.worker_id)
+    if (canary?.id === worker.id && !canary.seen && hostCompat.required['session-event turn/end']?.ok !== false) canary = undefined
     if (worker.handle === undefined || worker.finished === true) return { worker_id: worker.id, status: worker.status, finished: worker.finished === true }
     try { worker.handle.agent.cancel({ kind: 'user' }) } catch (error) { probe('cancel failed ' + String(worker.id).slice(-8) + ': ' + describeError(error).slice(0, 120)) }
     await finishWorker(worker.id)
@@ -1357,6 +1519,7 @@ export function apply(ctx) {
       const existing = workers.get(args.worker_id)
       // Restriction is a layer on the agent's own scope: every adopted or resumed
       // agent needs it again, or the worker sees every MAIN-only tool.
+      await checkInstance(live)
       restrictWorker(live, args.worker_id)
       if (existing !== undefined) { existing.handle = live; return summary(existing) }
       const adopted = {
@@ -1376,11 +1539,13 @@ export function apply(ctx) {
       ? undefined
       : { provider: args.provider, model: args.model }
     const composition = await compose()
+    if (typeof agents.resume !== 'function') throw compatError('agents.resume')
     const handle = await agents.resume({
       resumeSessionId: args.worker_id,
       ...(agentOptions === undefined ? {} : { agentOptions }),
       ...(composition === undefined ? {} : { setup: composition.setup }),
     })
+    await checkInstance(handle)
     try { restrictWorker(handle, args.worker_id) } catch (error) {
       try { await handle?.dispose?.() } catch {}
       throw error
@@ -1571,6 +1736,11 @@ export function apply(ctx) {
     ctx.on('session/event', (session, event) => {
       const id = session?.header?.id
       if (typeof id !== 'string') return
+      if (event?.type === 'turn/end' && workers.has(id) && canary && !canary.seen) {
+        const recovered = hostCompat.required['session-event turn/end']?.ok === false
+        canary.seen = true
+        checkCompat('required', 'session-event turn/end', true, recovered ? '(recovered)' : '첫 턴 종료 이벤트 수신')
+      }
       if (event?.type === 'turn/end') { try { void checkRotation(session) } catch {} }
       const worker = workers.get(id)
       if (worker === undefined) return
@@ -1616,6 +1786,7 @@ export function apply(ctx) {
     probe('listener=ok')
   } catch (error) {
     probe('listener=failed ' + describeError(error))
+    checkCompat('required', 'ctx.on', false, '세션 이벤트 구독 실패: ' + describeError(error))
   }
 
   // ---- file control channel -------------------------------------------------

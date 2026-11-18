@@ -95,6 +95,7 @@ V5 코드 변경인데 테스트·실행으로 확인할 수단이 없다(테스
 보고가 없을 때만 worker_result(wait:true 1회)로 산출물 회수, 회수 후 즉시 worker_finish(슬롯 8). 회수 없이 finish하면 산출물 소실. [B]
 장애: 무응답·오류(보고 본문이 '[턴 종료(…): 이번 지시의 출력 없음]'·'[턴 오류 종료: …]'·'[턴 차단 종료: …]'면 완료 아님)는 worker_status 1회. blocked면 사용자에게 묻고, 그 외는 정정 또는 worker_cancel 후 재spawn(cancel=그 일꾼 종료·칸 반환, 같은 세션을 다시 쓰려면 worker_resume 후 dispatch),
 세션 소실 시 worker_resume({worker_id}), 같은 실패 2회면 분할·모델 교체. [B]
+호환: 도구 결과의 compat_notice('[호환 점검] 옛 → 새 …')·warning('[호환] …')은 사용자 보고에 그 문장 그대로 1줄 옮긴다. '[호환] … 업데이트가 필요합니다' 거절이면 앱이 바뀐 것이다: 새 spawn·dispatch 재시도 금지, 돌던 일꾼만 worker_result→worker_finish로 회수하고 사용자에게 알린 뒤 멈춘다. [A]
 다회차 작업이면 worker_spawn(auto_finish:false)로 창·슬롯 유지. [B]
 사용자 보고는 마지막 1회, 작업/결과/검증/미해결 4필드만. 워커 대화 전문·중간
 로그·자기 반복 재검토 미첨부. [B]

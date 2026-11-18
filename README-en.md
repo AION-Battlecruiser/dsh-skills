@@ -41,7 +41,8 @@ Plenty of plugins split work across agents. This one focuses on **cutting the to
 | **A light main session** | Only 1,200-char report copies come in; full text is fetched on demand. Past a 400k window it hands over with one handoff file | Main-session tokens vs. all workers: **1.88× → 0.59×** |
 | **Verify only when it pays** | Only claims that meet V1–V5 (irreversible decision, conflict, missing evidence, …) are verified; the verifier has an 8-call cap and is stopped on timeout | Verifiers **2.12M tokens, 0 verdicts** → next run: 0 verifications |
 | **Lean worker start** | Workers do not see the skill catalog or management tools, and every instruction starts with the same prefix so the cache keeps hitting | 12,414-char skill catalog removed from every worker step; worker cache hit 94.8% |
-| **Light install** | Zero dependencies, one plugin file + one skill folder, 5 fake-app test suites | — |
+| **Survives app updates loudly, not silently** | Checks the app features it relies on at every start and reports `[호환 점검]` (compat check) when the app version changes. If a required feature disappears it blocks only new work and keeps result collection open | 17 fake-app checks; every deliberate mutation caught |
+| **Light install** | Zero dependencies, one plugin file + one skill folder, 6 fake-app test suites | — |
 
 ---
 
@@ -210,9 +211,11 @@ The app process must see them, so fully restart the app after changing them (Win
 `<DSH_ORCH_DIR>/plugin.log` should show:
 
 ```text
-… module loaded v4-r3 dir=C:/Users/you/.dsh/worker-orchestrator ctl=disabled
+… module loaded v4-r4 dir=C:/Users/you/.dsh/worker-orchestrator ctl=disabled
+… host version=0.2.2-rc.3 via=app-boot
 … registered=worker_spawn,worker_dispatch,worker_verify,worker_finish,worker_reports,worker_transfer,worker_status,worker_result,worker_cancel,worker_resume
 … ctl=off
+… compat required agents.create ok 워커 생성
 ```
 
 ---
@@ -313,6 +316,21 @@ Rarely changed, so not exposed as environment variables. Edit `plugins/dsh-worke
 
 ---
 
+## Update resilience (compat check)
+
+The DSH desktop app changes often. The plugin checks itself so an app update never breaks it **silently**.
+
+| When | What | Result |
+|---|---|---|
+| At start | App features it relies on: tool registration, creating workers, session events, window-size metering | `compat required … ok/FAIL`, `compat optional … ok/off` in `plugin.log` |
+| First worker | Worker-side features: instruction delivery, idle wait, cancel, tool isolation | Missing required ones close that worker with a clear `[호환]` (compat) error |
+| End of the first dispatched turn | Whether turn-end events really arrive (lost-report detection) | A `[호환]` notice if not; cleared automatically when another worker's event arrives |
+| First tool call after an app version change | Old → new version and the check summary | `compat_notice: "[호환 점검] 0.2.2-rc.3 → 0.2.3: required n/n ok …"` in the result |
+
+- **If a required feature disappears**, only new work (`worker_spawn`, `dispatch`, `verify`, `resume`, `transfer`) is blocked; `worker_status`, `worker_result`, `worker_finish`, `worker_cancel` and `worker_reports` stay open so running work can be collected. The error names the cause, the log path and the fix (update the plugin or roll back the app).
+- **If an optional feature disappears**, only that feature turns off: no window metering means no rotation notice; no tool isolation adds `isolation: 'off'` and a warning to the result. Turned-off features are listed in `worker_status` → `host.off`.
+- The last seen app version is kept in `<DSH_ORCH_DIR>/host.json`.
+
 ## Security
 
 - **The control channel (ctl) is off by default.** With `DSH_ORCH_CTL=1` the plugin **executes the `code` field** of `<DSH_ORCH_DIR>/ctl/in/*.json` inside the app. Any process that can write that folder can run code with the app's rights. Enable it only for debugging on a single-user machine.
@@ -323,11 +341,11 @@ Rarely changed, so not exposed as environment variables. Edit `plugins/dsh-worke
 
 ## Tests
 
-Five Node tests against a fake app. File functions are intercepted, so the real state folder is never touched.
+Six Node tests against a fake app. File functions are intercepted, so the real state folder is never touched.
 
 ```bash
 cd plugins/dsh-worker-orchestrator
-npm test        # = node test/caps.test.mjs && … && node test/env.test.mjs
+npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
 ```
 
 | File | Covers |
@@ -337,12 +355,13 @@ npm test        # = node test/caps.test.mjs && … && node test/env.test.mjs
 | `test/fix.test.mjs` | Concurrent spawn races, global slots, control-channel ownership |
 | `test/fix2.test.mjs` | 52 regressions (verifier policy, report delivery, no re-delivery, …) |
 | `test/env.test.mjs` | Default folder and control channel off without environment variables |
+| `test/compat.test.mjs` | 17 compat checks (missing required features refused, collection tools open, late injection, event canary and recovery, version-change notice) |
 
 ---
 
 ## Known limitations
 
-- Relies on DSH plugin internals (Agent service, session events, `tools.restrict`, …); app updates can break it.
+- Relies on DSH plugin internals (Agent service, session events, `tools.restrict`, …). An app update can still break it, but the compat check reports it instead of failing silently. Verified on a real app only in the author's setup (0.2.2-rc.3).
 - Tests use a fake app; in the real app, check `plugin.log`.
 - The call cap is a **notice**, not a hard stop. Only the verifier is stopped after a timeout.
 - The verdict is read from the verifier's last text message only.
@@ -360,7 +379,7 @@ dsh-skills/
 │  ├─ index.mjs            # the plugin (zero dependencies)
 │  ├─ cordis.patch.yml     # bundle auto-wiring
 │  ├─ package.json
-│  └─ test/                # 5 fake-app tests
+│  └─ test/                # 6 fake-app tests
 ├─ worker-orchestration/
 │  ├─ SKILL.md             # coordinator rules v10
 │  └─ handoff_template.md  # rotation handoff template
