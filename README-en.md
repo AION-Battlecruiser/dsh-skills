@@ -343,6 +343,8 @@ The DSH desktop app changes often. The plugin checks itself so an app update nev
 
 Six Node tests against a fake app. File functions are intercepted, so the real state folder is never touched.
 
+> **Run them with Node only.** The interception does not reach the plugin under Bun, so a Bun run writes fake worker records into the real state folder (`~/.dsh/worker-orchestrator`). Each test therefore stops before loading the plugin when it runs under Bun. Do not keep copies of the test files inside another Bun project: its `bun test` will discover and run them.
+
 ```bash
 cd plugins/dsh-worker-orchestrator
 npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
@@ -361,7 +363,7 @@ npm test        # = node test/caps.test.mjs && … && node test/compat.test.mjs
 
 ## Known limitations
 
-- Relies on DSH plugin internals (Agent service, session events, `tools.restrict`, …). An app update can still break it, but the compat check reports it instead of failing silently. Verified on a real app only in the author's setup (0.2.2-rc.3).
+- Relies on DSH plugin internals (Agent service, session events, `tools.restrict`, …). An app update can still break it, but the compat check reports it instead of failing silently. Verified on a real app only in the author's setup: real dispatches on 0.2.2-rc.3; on 0.2.2-rc.5 (2026-11-19) the startup check passes and a source comparison shows no change in the packages the plugin relies on, but real dispatches have not been observed yet.
 - Tests use a fake app; in the real app, check `plugin.log`.
 - The call cap is a **notice**, not a hard stop. Only the verifier is stopped after a timeout.
 - The verdict is read from the verifier's last text message only.
