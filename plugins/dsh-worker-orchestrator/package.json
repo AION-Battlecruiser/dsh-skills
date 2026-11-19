@@ -1,6 +1,6 @@
 {
   "name": "dsh-worker-orchestrator",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "DeepSeek Harness plugin: a coordinator session runs independent worker sessions (not subagents) with call caps, slot limits, lazy verification and window rotation enforced in code.",
   "keywords": [
     "deepseek-harness",
