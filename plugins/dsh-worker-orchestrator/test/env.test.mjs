@@ -1,3 +1,7 @@
+// The fs isolation below only works on Node. Under Bun the plugin's own fs imports
+// stay real, so these fake workers would be written into the real state folder.
+if (process.versions.bun) throw new Error('Run with node (npm test): this test must not run under Bun.')
+
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { homedir } from 'node:os'
